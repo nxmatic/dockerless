@@ -3,7 +3,11 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/GoogleContainerTools/kaniko/pkg/config"
@@ -11,6 +15,7 @@ import (
 	"github.com/GoogleContainerTools/kaniko/pkg/util"
 	"github.com/containerd/containerd/platforms"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/moby/sys/mount"
 	"github.com/spf13/cobra"
 )
 
@@ -112,6 +117,7 @@ func (cmd *BuildCmd) Run() error {
 }
 
 func (cmd *BuildCmd) build() (v1.Image, error) {
+
 	// add ignore paths
 	buildIgnorePaths(cmd.IgnorePaths)
 
@@ -121,17 +127,49 @@ func (cmd *BuildCmd) build() (v1.Image, error) {
 		return nil, fmt.Errorf("init ignore list: %w", err)
 	}
 
-	// make sure to delete previous contents
-	err = util.DeleteFilesystem()
+	// create a new directory for the chroot environment
+	chrootDir := "/.dockerless/chroot"
+	err = os.MkdirAll(chrootDir, 0755)
 	if err != nil {
-		return nil, fmt.Errorf("delete filesystem: %w", err)
+		return nil, fmt.Errorf("create chroot directory: %w", err)
 	}
 
-	// change dir before building
-	err = os.Chdir("/")
+	// copy necessary files and directories into the chroot environment
+	err = copyIgnoredFilesToChroot(chrootDir)
 	if err != nil {
-		return nil, fmt.Errorf("change dir: %w", err)
+		return nil, fmt.Errorf("copy files to chroot: %w", err)
 	}
+
+	// change root to the chroot environment
+	originalRoot, err := os.Open("/")
+	if err != nil {
+		return nil, fmt.Errorf("get root directory: %w", err)
+	}
+	chroot, err := os.Open(chrootDir)
+	if err != nil {
+		originalRoot.Close()
+		return nil, fmt.Errorf("open chroot directory: %w", err)
+	}
+	err = chroot.Chdir()
+	if err != nil {
+		originalRoot.Close()
+		chroot.Close()
+		return nil, fmt.Errorf("chdir to chroot: %w", err)
+	}
+	err = syscall.Chroot(chrootDir)
+	if err != nil {
+		originalRoot.Close()
+		return nil, fmt.Errorf("chroot: %w", err)
+	}
+	defer func() {
+		defer originalRoot.Close()
+		// change to the original root directory
+		if err := originalRoot.Chdir(); err != nil {
+			fmt.Printf("chroot back to original: %v\n", err)
+		}
+		// restore the original root directory
+		syscall.Chroot(".")
+	}()
 
 	opts := &config.KanikoOptions{
 		Destinations:   []string{"local"},
@@ -174,6 +212,7 @@ func (cmd *BuildCmd) build() (v1.Image, error) {
 
 	// let's build!
 	image, err := executor.DoBuild(opts)
+
 	if err != nil {
 		// add a passwd as other we won't be able to exec into this container
 		if addPwdErr := addPasswd(); addPwdErr != nil {
@@ -211,4 +250,150 @@ func buildIgnorePaths(extraPaths []string) {
 			PrefixMatchOnly: false,
 		})
 	}
+}
+
+// OverrideRoot override the root directory to the chrootDir
+func overrideRoot(chrootDir string) error {
+	util.DeleteFilesystem()
+	copyFileOrDir(chrootDir, "/")
+	return nil
+}
+
+// Copy ignored paths to the chroot environment
+func copyIgnoredFilesToChroot(chrootDir string) error {
+	effectiveIgnoreList := util.IgnoreList()
+
+	for _, ignore := range effectiveIgnoreList {
+		if ignore.PrefixMatchOnly {
+			err := filepath.Walk(ignore.Path, func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return fmt.Errorf("walk error: %w", err)
+				}
+				relPath, err := filepath.Rel(ignore.Path, path)
+				if err != nil {
+					return fmt.Errorf("rel error: %w", err)
+				}
+				destPath := filepath.Join(chrootDir, ignore.Path, relPath)
+				if info.IsDir() {
+					if err := os.MkdirAll(destPath, info.Mode()); err != nil {
+						return fmt.Errorf("mkdir error: %w", err)
+					}
+					return nil
+				}
+				return copyFile(path, destPath)
+			})
+			if err != nil {
+				return fmt.Errorf("walk error: %w", err)
+			}
+		} else {
+			if err := copyFileOrDir(ignore.Path, filepath.Join(chrootDir, ignore.Path)); err != nil {
+				return fmt.Errorf("copy error: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// copyFileOrDir copies a file or directory from src to dst
+func copyFileOrDir(src, dst string) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("stat src: %w", err)
+	}
+
+	if srcInfo.IsDir() {
+		// Check if the directory is a mount point
+		for _, volume := range util.Volumes() {
+			if strings.HasPrefix(src, volume) {
+				// Remount the volume instead of copying
+				target := filepath.Join(dst, src)
+				err := os.MkdirAll(target, 0755)
+				if err != nil {
+					return fmt.Errorf("mkdir error: %w", err)
+				}
+				err = mount.Mount(src, target, "bind", "")
+				if err != nil {
+					return fmt.Errorf("mount error: %w", err)
+				}
+				return nil
+			}
+		}
+		return copyDir(src, dst)
+	}
+	return copyFile(src, dst)
+}
+
+// copyFile copies a single file from src to dst
+func copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open src file: %w", err)
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("create dst file: %w", err)
+	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	if err != nil {
+		return fmt.Errorf("copy file: %w", err)
+	}
+
+	err = dstFile.Sync()
+	if err != nil {
+		return fmt.Errorf("sync dst file: %w", err)
+	}
+
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("stat src file: %w", err)
+	}
+
+	err = os.Chmod(dst, srcInfo.Mode())
+	if err != nil {
+		return fmt.Errorf("chmod dst file: %w", err)
+	}
+
+	return nil
+}
+
+// copyDir copies a directory recursively from src to dst
+func copyDir(src, dst string) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("stat src dir: %w", err)
+	}
+
+	err = os.MkdirAll(dst, srcInfo.Mode())
+	if err != nil {
+		return fmt.Errorf("mkdir dst dir: %w", err)
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return fmt.Errorf("read src dir: %w", err)
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		if entry.IsDir() {
+			err = copyDir(srcPath, dstPath)
+			if err != nil {
+				return fmt.Errorf("copy dir: %w", err)
+			}
+		} else {
+			err = copyFile(srcPath, dstPath)
+			if err != nil {
+				return fmt.Errorf("copy file: %w", err)
+			}
+		}
+	}
+
+	return nil
 }

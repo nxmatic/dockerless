@@ -6,6 +6,7 @@ require (
 	github.com/GoogleContainerTools/kaniko v1.9.2
 	github.com/containerd/containerd v1.7.11
 	github.com/google/go-containerregistry v0.15.2
+	github.com/moby/sys/mount v0.3.3
 	github.com/spf13/cobra v1.8.0
 )
 
@@ -80,7 +81,6 @@ require (
 	github.com/moby/locker v1.0.1 // indirect
 	github.com/moby/patternmatcher v0.5.0 // indirect
 	github.com/moby/swarmkit/v2 v2.0.0-20230315203717-e28e8ba9bc83 // indirect
-	github.com/moby/sys/mount v0.3.3 // indirect
 	github.com/moby/sys/mountinfo v0.6.2 // indirect
 	github.com/moby/sys/sequential v0.5.0 // indirect
 	github.com/moby/sys/signal v0.7.0 // indirect
