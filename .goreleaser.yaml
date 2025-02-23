@@ -86,10 +86,10 @@ release:
 
 dockers:
   - image_templates:
-      - ghcr.io/loft-sh/{{.ProjectName}}:{{ .Version }}-amd64
-      - '{{ if eq .Prerelease "" }}ghcr.io/loft-sh/{{.ProjectName}}:latest-amd64{{ end }}'
-      - '{{ if eq .Prerelease "" }}ghcr.io/loft-sh/{{.ProjectName}}:{{ .Major }}-amd64{{ end }}'
-      - '{{ if eq .Prerelease "" }}ghcr.io/loft-sh/{{.ProjectName}}:{{ .Major }}.{{ .Minor }}-amd64{{ end }}'
+      - ghcr.io/nxmatic/{{.ProjectName}}:{{ .Version }}-amd64
+      - '{{ if eq .Prerelease "" }}ghcr.io/nxmatic/{{.ProjectName}}:latest-amd64{{ end }}'
+      - '{{ if eq .Prerelease "" }}ghcr.io/nxmatic/{{.ProjectName}}:{{ .Major }}-amd64{{ end }}'
+      - '{{ if eq .Prerelease "" }}ghcr.io/nxmatic/{{.ProjectName}}:{{ .Major }}.{{ .Minor }}-amd64{{ end }}'
     use: buildx
     build_flag_templates:
       - "--platform=linux/amd64"
@@ -102,10 +102,10 @@ dockers:
       - files
 
   - image_templates:
-      - ghcr.io/loft-sh/{{.ProjectName}}:{{ .Version }}-arm64v8
-      - '{{ if eq .Prerelease "" }}ghcr.io/loft-sh/{{.ProjectName}}:latest-arm64v8{{ end }}'
-      - '{{ if eq .Prerelease "" }}ghcr.io/loft-sh/{{.ProjectName}}:{{ .Major }}-arm64v8{{ end }}'
-      - '{{ if eq .Prerelease "" }}ghcr.io/loft-sh/{{.ProjectName}}:{{ .Major }}.{{ .Minor }}-arm64v8{{ end }}'
+      - ghcr.io/nxmatic/{{.ProjectName}}:{{ .Version }}-arm64v8
+      - '{{ if eq .Prerelease "" }}ghcr.io/nxmatic/{{.ProjectName}}:latest-arm64v8{{ end }}'
+      - '{{ if eq .Prerelease "" }}ghcr.io/nxmatic/{{.ProjectName}}:{{ .Major }}-arm64v8{{ end }}'
+      - '{{ if eq .Prerelease "" }}ghcr.io/nxmatic/{{.ProjectName}}:{{ .Major }}.{{ .Minor }}-arm64v8{{ end }}'
     use: buildx
     goarch: arm64
     build_flag_templates:
@@ -119,27 +119,27 @@ dockers:
       - files
 
 docker_manifests:
-  - name_template: ghcr.io/loft-sh/{{.ProjectName}}:{{ .Version }}
+  - name_template: ghcr.io/nxmatic/{{.ProjectName}}:{{ .Version }}
     image_templates:
-      - ghcr.io/loft-sh/{{.ProjectName}}:{{ .Version }}-amd64
-      - ghcr.io/loft-sh/{{.ProjectName}}:{{ .Version }}-arm64v8
+      - ghcr.io/nxmatic/{{.ProjectName}}:{{ .Version }}-amd64
+      - ghcr.io/nxmatic/{{.ProjectName}}:{{ .Version }}-arm64v8
 
-  - name_template: ghcr.io/loft-sh/{{.ProjectName}}:latest
+  - name_template: ghcr.io/nxmatic/{{.ProjectName}}:latest
     image_templates:
-      - ghcr.io/loft-sh/{{.ProjectName}}:latest-amd64
-      - ghcr.io/loft-sh/{{.ProjectName}}:latest-arm64v8
+      - ghcr.io/nxmatic/{{.ProjectName}}:latest-amd64
+      - ghcr.io/nxmatic/{{.ProjectName}}:latest-arm64v8
     skip_push: auto
 
-  - name_template: ghcr.io/loft-sh/{{.ProjectName}}:{{ .Major }}
+  - name_template: ghcr.io/nxmatic/{{.ProjectName}}:{{ .Major }}
     image_templates:
-      - ghcr.io/loft-sh/{{.ProjectName}}:{{ .Major }}-amd64
-      - ghcr.io/loft-sh/{{.ProjectName}}:{{ .Major }}-arm64v8
+      - ghcr.io/nxmatic/{{.ProjectName}}:{{ .Major }}-amd64
+      - ghcr.io/nxmatic/{{.ProjectName}}:{{ .Major }}-arm64v8
     skip_push: auto
 
-  - name_template: ghcr.io/loft-sh/{{.ProjectName}}:{{ .Major }}.{{ .Minor }}
+  - name_template: ghcr.io/nxmatic/{{.ProjectName}}:{{ .Major }}.{{ .Minor }}
     image_templates:
-      - ghcr.io/loft-sh/{{.ProjectName}}:{{ .Major }}.{{ .Minor }}-amd64
-      - ghcr.io/loft-sh/{{.ProjectName}}:{{ .Major }}.{{ .Minor }}-arm64v8
+      - ghcr.io/nxmatic/{{.ProjectName}}:{{ .Major }}.{{ .Minor }}-amd64
+      - ghcr.io/nxmatic/{{.ProjectName}}:{{ .Major }}.{{ .Minor }}-arm64v8
     skip_push: auto
 
 docker_signs:
