@@ -128,7 +128,7 @@ func (cmd *BuildCmd) build() (v1.Image, error) {
 	}
 
 	// create a new directory for the chroot environment
-	chrootDir := "/.dockerless/chroot"
+	chrootDir := "/chroot"
 	err = os.MkdirAll(chrootDir, 0755)
 	if err != nil {
 		return nil, fmt.Errorf("create chroot directory: %w", err)
@@ -264,16 +264,18 @@ func copyIgnoredFilesToChroot(chrootDir string) error {
 	effectiveIgnoreList := util.IgnoreList()
 
 	for _, ignore := range effectiveIgnoreList {
-		if ignore.PrefixMatchOnly {
-			err := filepath.Walk(ignore.Path, func(path string, info os.FileInfo, err error) error {
+		ignorePath := ignore.Path
+		ignorePrefixMatchOnly := ignore.PrefixMatchOnly
+		if ignorePrefixMatchOnly {
+			err := filepath.Walk(ignorePath, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
 					return fmt.Errorf("walk error: %w", err)
 				}
-				relPath, err := filepath.Rel(ignore.Path, path)
+				relPath, err := filepath.Rel(ignorePath, path)
 				if err != nil {
 					return fmt.Errorf("rel error: %w", err)
 				}
-				destPath := filepath.Join(chrootDir, ignore.Path, relPath)
+				destPath := filepath.Join(chrootDir, ignorePath, relPath)
 				if info.IsDir() {
 					if err := os.MkdirAll(destPath, info.Mode()); err != nil {
 						return fmt.Errorf("mkdir error: %w", err)
@@ -286,7 +288,7 @@ func copyIgnoredFilesToChroot(chrootDir string) error {
 				return fmt.Errorf("walk error: %w", err)
 			}
 		} else {
-			if err := copyFileOrDir(ignore.Path, filepath.Join(chrootDir, ignore.Path)); err != nil {
+			if err := copyFileOrDir(ignorePath, filepath.Join(chrootDir, ignorePath)); err != nil {
 				return fmt.Errorf("copy error: %w", err)
 			}
 		}
@@ -303,22 +305,6 @@ func copyFileOrDir(src, dst string) error {
 	}
 
 	if srcInfo.IsDir() {
-		// Check if the directory is a mount point
-		for _, volume := range util.Volumes() {
-			if strings.HasPrefix(src, volume) {
-				// Remount the volume instead of copying
-				target := filepath.Join(dst, src)
-				err := os.MkdirAll(target, 0755)
-				if err != nil {
-					return fmt.Errorf("mkdir error: %w", err)
-				}
-				err = mount.Mount(src, target, "bind", "")
-				if err != nil {
-					return fmt.Errorf("mount error: %w", err)
-				}
-				return nil
-			}
-		}
 		return copyDir(src, dst)
 	}
 	return copyFile(src, dst)
@@ -326,6 +312,13 @@ func copyFileOrDir(src, dst string) error {
 
 // copyFile copies a single file from src to dst
 func copyFile(src, dst string) error {
+	// Ensure the parent directory exists
+	dstDir := filepath.Dir(dst)
+	err := os.MkdirAll(dstDir, 0755)
+	if err != nil {
+		return fmt.Errorf("create parent directory: %w", err)
+	}
+
 	srcFile, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("open src file: %w", err)
@@ -373,6 +366,24 @@ func copyDir(src, dst string) error {
 		return fmt.Errorf("mkdir dst dir: %w", err)
 	}
 
+	// Check if the directory is a mount point
+	for _, volume := range util.Volumes() {
+		if strings.HasPrefix(src, volume) {
+			// Remount the volume instead of copying
+			target := filepath.Join(dst, src)
+			err := os.MkdirAll(target, 0755)
+			if err != nil {
+				return fmt.Errorf("mkdir error: %w", err)
+			}
+			err = mount.Mount(src, target, "bind", "")
+			if err != nil {
+				return fmt.Errorf("mount error: %w", err)
+			}
+			return nil
+		}
+	}
+
+	// Copy the directory
 	entries, err := os.ReadDir(src)
 	if err != nil {
 		return fmt.Errorf("read src dir: %w", err)
@@ -381,6 +392,11 @@ func copyDir(src, dst string) error {
 	for _, entry := range entries {
 		srcPath := filepath.Join(src, entry.Name())
 		dstPath := filepath.Join(dst, entry.Name())
+
+		// Prevent copying the directory into itself
+		if srcPath == dstPath {
+			continue
+		}
 
 		if entry.IsDir() {
 			err = copyDir(srcPath, dstPath)
